@@ -1,22 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const TOPICS = [
   "داخلی", "جراحی", "اطفال", "زنان و زایمان", 
   "روانپزشکی", "عفونی", "نورولوژی", "قلب", 
   "فارماکولوژی", "ارکانی و بیهوشی", "پوست و رادیو", "آمار و اپیدمی"
-];
-
-const INITIAL_WEEK_PERFORMANCE = [
-  { day: "شنبه", hours: 4.0, date: "۹ خرداد" },
-  { day: "یکشنبه", hours: 6.5, date: "۱۰ خرداد" },
-  { day: "دوشنبه", hours: 0.0, date: "۱۱ خرداد" },
-  { day: "سه‌شنبه", hours: 8.0, date: "۱۲ خرداد" },
-  { day: "چهارشنبه", hours: 5.5, date: "۱۳ خرداد" },
-  { day: "پنجشنبه", hours: 3.0, date: "۱۴ خرداد" },
-  { day: "جمعه", hours: 9.5, date: "۱۵ خرداد" },
 ];
 
 const toPersianDigits = (num: string | number) => {
@@ -26,89 +16,121 @@ const toPersianDigits = (num: string | number) => {
 };
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState<"history" | "add" | "timer">("history");
+  const [currentUser, setCurrentUser] = useState<"mostafa" | "saghar" | null>(null);
+  const [activeTab, setActiveTab] = useState<"history" | "add" | "overview">("history");
   const [selectedTopic, setSelectedTopic] = useState("");
   const [hours, setHours] = useState("");
-  const [currentUser, setCurrentUser] = useState<"mostafa" | "saghar">("mostafa");
   const [logs, setLogs] = useState<any[]>([]);
-  const [weekPerformance, setWeekPerformance] = useState(INITIAL_WEEK_PERFORMANCE);
+  const [weekPerformance, setWeekPerformance] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [time, setTime] = useState(0);
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  // استیت‌های بررسی آماری (Overview) کاربر فعلی
+  const [streak, setStreak] = useState(0);
+  const [currentWeekTotal, setCurrentWeekTotal] = useState(0);
+  const [last4Weeks, setLast4Weeks] = useState<any[]>([]);
+
+  // استیت‌های تفکیک‌شده برای لیدربورد واقعی حریف
+  const [opponentToday, setOpponentToday] = useState(0);
+  const [opponentWeek, setOpponentWeek] = useState(0);
+
+  // تابع واکشی داده‌ها با منطق اصلاح‌شده مچ‌کردن حریف
+  // تابع واکشی داده‌ها با منطق اصلاح‌شده مچ‌کردن مستقل حریف
+  const fetchDatabaseData = async (user: string) => {
+    setIsLoading(true);
+    try {
+      // ۱. ابتدا دیتای خود کاربر لاگین شده را میاوریم
+      const res = await fetch(`/api/study-logs?user=${user}`, { cache: "no-store" });
+      
+      // ۲. رقیب را مشخص می‌کنیم تا دیتای او را هم مستقیم و بدون وابستگی بگیریم
+      const opponent = user === "mostafa" ? "saghar" : "mostafa";
+      const resOpponent = await fetch(`/api/study-logs?user=${opponent}`, { cache: "no-store" });
+
+      if (res.ok) {
+        const data = await res.json();
+        setLogs(data.logs || []);
+        setWeekPerformance(data.performance || []);
+        setStreak(data.streak || 0);
+        setCurrentWeekTotal(data.currentWeekTotal || 0);
+        setLast4Weeks(data.last4Weeks || [
+          { label: "هفته جاری", hours: data.currentWeekTotal || 0 },
+          { label: "۱ هفته قبل", hours: data.pastWeeks?.[0] || 0 },
+          { label: "۲ هفته قبل", hours: data.pastWeeks?.[1] || 0 },
+          { label: "۳ هفته قبل", hours: data.pastWeeks?.[2] || 0 }
+        ]);
+      }
+
+      if (resOpponent.ok) {
+        const opponentData = await resOpponent.json();
+        
+        // محاسبه مجموع ساعت امروز حریف از روی لوگ‌های امروز او
+        const oppLogs = opponentData.logs || [];
+        const oppTodayTotal = oppLogs.reduce((sum: number, log: any) => sum + (parseFloat(log.hours) || 0), 0);
+        
+        // راهکار حل مشکل: محاسبه داینامیک مجموع عملکرد ۷ روز گذشته حریف از روی آرایه پرفورمنس بک‌بورد او
+        const oppPerf = opponentData.performance || [];
+        const oppWeekTotal = oppPerf.reduce((sum: number, perf: any) => sum + (parseFloat(perf.hours) || 0), 0);
+        
+        setOpponentToday(oppTodayTotal);
+        // اگر بک‌اند مقدار معتبر فرستاده بود از آن استفاده کن، در غیر این‌صورت از محاسبه دقیق فرانت‌استفاده کن
+        setOpponentWeek(opponentData.currentWeekTotal > 0 ? opponentData.currentWeekTotal : oppWeekTotal);
+      }
+    } catch (err) {
+      console.error("Error fetching data:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const getCookie = (name: string) => {
-      if (typeof document === "undefined") return null;
-      const value = `; ${document.cookie}`;
-      const parts = value.split(`; ${name}=`);
-      if (parts.length === 2) return parts.pop()?.split(";").shift();
-      return null;
+    const checkAuth = async () => {
+      try {
+        const res = await fetch("/api/me");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user === "mostafa" || data.user === "saghar") {
+            setCurrentUser(data.user);
+            fetchDatabaseData(data.user);
+            return;
+          }
+        }
+        setCurrentUser("mostafa");
+        fetchDatabaseData("mostafa");
+      } catch (err) {
+        console.error("Auth verification failed:", err);
+        setCurrentUser("mostafa");
+        fetchDatabaseData("mostafa");
+      }
     };
 
-    const sessionUser = getCookie("user_session");
-    if (sessionUser === "mostafa" || sessionUser === "saghar") {
-      setCurrentUser(sessionUser);
-    }
-
-    setLogs([
-      { id: "1", topic: "داخلی", hours: 4.5, date: "امروز", user: "mostafa" },
-      { id: "2", topic: "جراحی", hours: 3.0, date: "امروز", user: "saghar" },
-      { id: "3", topic: "اطفال", hours: 5.0, date: "امروز", user: "mostafa" },
-      { id: "4", topic: "زنان و زایمان", hours: 2.5, date: "امروز", user: "saghar" },
-    ]);
+    checkAuth();
   }, []);
 
-  useEffect(() => {
-    if (isTimerRunning) {
-      timerRef.current = setInterval(() => {
-        setTime((prevTime) => prevTime + 1);
-      }, 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isTimerRunning]);
-
-  const formatTime = (totalSeconds: number) => {
-    const hrs = Math.floor(totalSeconds / 3600).toString().padStart(2, "0");
-    const mins = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, "0");
-    const secs = (totalSeconds % 60).toString().padStart(2, "0");
-    return toPersianDigits(`${hrs}:${mins}:${secs}`);
-  };
-
-  const handleAddLog = (e: React.FormEvent) => {
+  const handleAddLog = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedTopic || !hours) return;
+    if (!selectedTopic || !hours || !currentUser) return;
 
-    const newLog = {
-      id: Date.now().toString(),
-      topic: selectedTopic,
-      hours: parseFloat(hours),
-      date: "امروز",
-      user: currentUser
-    };
+    try {
+      const res = await fetch("/api/study-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: selectedTopic,
+          hours: hours,
+          user: currentUser,
+        }),
+      });
 
-    setLogs([newLog, ...logs]);
-    
-    if (weekPerformance.length > 0) {
-      const updatedWeek = [...weekPerformance];
-      updatedWeek[updatedWeek.length - 1].hours += parseFloat(hours);
-      setWeekPerformance(updatedWeek);
+      if (res.ok) {
+        setSelectedTopic("");
+        setHours("");
+        setActiveTab("history");
+        await fetchDatabaseData(currentUser);
+      } else {
+        alert("خطا در ثبت اطلاعات روی سرور دیتابیس");
+      }
+    } catch (err) {
+      console.error("API submission failed:", err);
     }
-
-    setSelectedTopic("");
-    setHours("");
-    setActiveTab("history");
-  };
-
-  const handleTransferTimerToInput = () => {
-    const calculatedHours = (time / 3600).toFixed(1);
-    setHours(calculatedHours);
-    setIsTimerRunning(false);
-    setActiveTab("add");
   };
 
   const quickAddHours = (amount: number) => {
@@ -116,19 +138,27 @@ export default function Dashboard() {
     setHours((current + amount).toString());
   };
 
-  const filteredLogs = logs.filter((log) => log.user === currentUser);
-  
-  const todayTotalHours = filteredLogs
-    .filter((log) => log.date === "امروز")
-    .reduce((sum, log) => sum + log.hours, 0);
+  const todayTotalHours = logs.reduce((sum, log) => sum + (parseFloat(log.hours) || 0), 0);
+
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-[#F9F8F4] flex flex-col items-center justify-center font-sans" dir="rtl">
+        <div className="w-8 h-8 border-2 border-[#2C2A27] border-t-transparent rounded-full animate-spin mb-4" />
+        <span className="text-xs text-neutral-400 font-medium tracking-wide">در حال بررسی دسترسی...</span>
+      </div>
+    );
+  }
 
   const isMostafa = currentUser === "mostafa";
-  
-  // پالت رنگ اختصاصی (سبز برای مصطفی، صورتی رُز برای ساغر)
   const userColorClass = isMostafa ? "bg-[#0D5236]" : "bg-[#DB2777]";
   const userTextColorClass = isMostafa ? "text-[#0D5236]" : "text-[#DB2777]";
   const userBgLightClass = isMostafa ? "bg-[#0D5236]/10" : "bg-[#DB2777]/10";
-  const timerRingClass = isMostafa ? "ring-green-100" : "ring-pink-100";
+
+  // تدارکات استایل و نام رقیب
+  const opponentName = isMostafa ? "ساغر" : "مصطفی";
+  const opponentColorClass = isMostafa ? "bg-[#DB2777]" : "bg-[#0D5236]";
+  const opponentTextColorClass = isMostafa ? "text-[#DB2777]" : "text-[#0D5236]";
+  const opponentBgLightClass = isMostafa ? "bg-[#DB2777]/10" : "bg-[#0D5236]/10";
 
   const getTileBg = (hrs: number) => {
     if (hrs === 0) return "bg-neutral-100 text-neutral-400";
@@ -147,9 +177,11 @@ export default function Dashboard() {
           <h1 className="text-lg font-bold text-[#1C1B19] mt-0.5">میز مطالعه من</h1>
         </div>
         <div className="flex items-center gap-2">
-          <div className={`text-[11px] font-bold px-3 py-1 rounded-full transition-all ${userBgLightClass} ${userTextColorClass}`}>
-            {isMostafa ? "مصطفی" : "ساغر"}
-          </div>
+          {!isLoading && (
+            <div className={`text-[11px] font-bold px-3 py-1 rounded-full transition-all ${userBgLightClass} ${userTextColorClass}`}>
+              {isMostafa ? "مصطفی" : "ساغر"}
+            </div>
+          )}
         </div>
       </header>
 
@@ -167,98 +199,113 @@ export default function Dashboard() {
               transition={{ duration: 0.2 }}
               className="space-y-6"
             >
-              {/* کارت عملکرد امروز همراه با آیکون روند ترند در چپ */}
-              <div className="bg-white p-5 border border-[#EAE8E3]/80 relative overflow-hidden flex justify-between items-center">
-                <div className={`absolute top-0 right-0 w-2 h-full ${userColorClass}`} />
-                <div>
-                  <span className="text-xs font-medium text-neutral-400 block">میزان مطالعه امروز شما</span>
-                  <div className="flex items-baseline gap-1 mt-2">
-                    <span className={`text-4xl font-black font-mono ${userTextColorClass}`}>
-                      {toPersianDigits(todayTotalHours.toFixed(1))}
-                    </span>
-                    <span className="text-xs text-neutral-400">ساعت</span>
-                  </div>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <div className={`w-6 h-6 border-2 border-t-transparent rounded-full animate-spin ${userTextColorClass}`} />
                 </div>
-                {/* آیکون ترند صعودی مینی‌مال */}
-                <div className={`p-3 rounded-xl ${userBgLightClass} ${userTextColorClass}`}>
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
-                  </svg>
-                </div>
-              </div>
-
-              {/* بخش تایل‌های عملکرد ۷ روز گذشته (۴ در بالا، ۳ در پایین وسط‌چین) */}
-              <div className="bg-white p-5 border border-[#EAE8E2]/50 shadow-sm space-y-4">
-                <div className="flex items-center justify-between px-0.5">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">وضعیت عملکرد ۷ روز گذشته</h3>
-                  <span className="text-[10px] text-neutral-400 font-medium">مجموع کل هفته</span>
-                </div>
-                
-                <div className="space-y-2">
-                  {/* ردیف اول: ۴ تایل اول */}
-                  <div className="grid grid-cols-4 gap-2">
-                    {weekPerformance.slice(0, 4).map((perf, index) => (
-                      <div 
-                        key={index} 
-                        className={`p-2.5 h-20 rounded-sm flex flex-col items-center justify-center border border-black/5 text-center transition-all ${getTileBg(perf.hours)}`}
-                      >
-                        <span className="text-[10px] font-bold block opacity-80">{perf.day}</span>
-                        <span className="text-sm font-black font-mono block mt-1">
-                          {perf.hours > 0 ? toPersianDigits(perf.hours.toFixed(1)) : toPersianDigits(0)}
+              ) : (
+                <>
+                  {/* کارت عملکرد امروز کاربر */}
+                  <div className="bg-white p-5 border border-[#EAE8E3]/80 relative overflow-hidden flex justify-between items-center">
+                    <div className={`absolute top-0 right-0 w-2 h-full ${userColorClass}`} />
+                    <div>
+                      <span className="text-xs font-medium text-neutral-400 block">میزان مطالعه امروز شما</span>
+                      <div className="flex items-baseline gap-1 mt-2">
+                        <span className={`text-4xl font-black font-mono ${userTextColorClass}`}>
+                          {toPersianDigits(todayTotalHours.toFixed(1))}
                         </span>
+                        <span className="text-xs text-neutral-400">ساعت</span>
                       </div>
-                    ))}
-                  </div>
-
-                  {/* ردیف دوم: ۳ تایل آخر متمرکز در وسط */}
-                  <div className="flex justify-center gap-2 w-full">
-                    {weekPerformance.slice(4, 7).map((perf, index) => (
-                      <div 
-                        key={index} 
-                        className={`p-2.5 h-20 rounded-sm flex flex-col items-center justify-center border border-black/5 text-center transition-all w-[23%] ${getTileBg(perf.hours)}`}
-                      >
-                        <span className="text-[10px] font-bold block opacity-80">{perf.day}</span>
-                        <span className="text-sm font-black font-mono block mt-1">
-                          {perf.hours > 0 ? toPersianDigits(perf.hours.toFixed(1)) : toPersianDigits(0)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* لیست گزارش‌های امروز */}
-              <div className="space-y-3">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400 px-1">گزارش‌های ثبت‌شده امروز</h3>
-                
-                <div className="space-y-2.5">
-                  {filteredLogs.length === 0 ? (
-                    <div className="text-center py-6 text-xs text-neutral-400 bg-white rounded-md border border-dashed border-[#EAE8E2]">
-                      هیچ رکوردی برای امروز ثبت نشده است.
                     </div>
-                  ) : (
-                    filteredLogs.map((log) => (
-                      <div 
-                        key={log.id} 
-                        className="bg-white p-4 rounded-lg border border-[#EAE8E2]/40 shadow-sm flex justify-between items-center hover:bg-neutral-50/50 transition-all"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-2 h-8 rounded-full ${userColorClass}`} />
-                          <div>
-                            <h4 className="text-sm font-bold text-[#2C2A27]">{log.topic}</h4>
-                            <span className="text-[10px] text-neutral-400 block mt-0.5 font-medium">{log.date}</span>
+                    <div className={`p-3 rounded-xl transition-all duration-300 ${userBgLightClass} ${userTextColorClass} flex items-center justify-center`}>
+                      {isMostafa ? (
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+                        </svg>
+                      ) : (
+                        <motion.span 
+                          className="text-2xl leading-none select-none"
+                          initial={{ scale: 0.6, rotate: -15 }}
+                          animate={{ scale: 1, rotate: 0 }}
+                          transition={{ type: "spring", stiffness: 260, damping: 12 }}
+                        >
+                          🎀
+                        </motion.span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* بخش تایل‌های عملکرد ۷ روز گذشته */}
+                  <div className="bg-white p-5 border border-[#EAE8E2]/50 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between px-0.5">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">وضعیت عملکرد ۷ روز گذشته</h3>
+                      <span className="text-[10px] text-neutral-400 font-medium">مجموع کل هفته</span>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-4 gap-2">
+                        {weekPerformance.slice(0, 4).map((perf, index) => (
+                          <div 
+                            key={index} 
+                            className={`p-2.5 h-20 rounded-sm flex flex-col items-center justify-center border border-black/5 text-center transition-all ${getTileBg(perf.hours)}`}
+                          >
+                            <span className="text-[10px] font-bold block opacity-80">{perf.day}</span>
+                            <span className="text-sm font-black font-mono block mt-1">
+                              {perf.hours > 0 ? toPersianDigits(perf.hours.toFixed(1)) : toPersianDigits(0)}
+                            </span>
                           </div>
-                        </div>
-                        <div className="text-left">
-                          <span className="text-base font-bold font-mono text-[#1C1B19] block">
-                            {toPersianDigits(log.hours)} ساعت
-                          </span>
-                        </div>
+                        ))}
                       </div>
-                    ))
-                  )}
-                </div>
-              </div>
+
+                      <div className="flex justify-center gap-2 w-full">
+                        {weekPerformance.slice(4, 7).map((perf, index) => (
+                          <div 
+                            key={index} 
+                            className={`p-2.5 h-20 rounded-sm flex flex-col items-center justify-center border border-black/5 text-center transition-all w-[23%] ${getTileBg(perf.hours)}`}
+                          >
+                            <span className="text-[10px] font-bold block opacity-80">{perf.day}</span>
+                            <span className="text-sm font-black font-mono block mt-1">
+                              {perf.hours > 0 ? toPersianDigits(perf.hours.toFixed(1)) : toPersianDigits(0)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* لیست گزارش‌های امروز */}
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400 px-1">گزارش‌های ثبت‌شده امروز</h3>
+                    <div className="space-y-2.5">
+                      {logs.length === 0 ? (
+                        <div className="text-center py-6 text-xs text-neutral-400 bg-white rounded-md border border-dashed border-[#EAE8E2]">
+                          هیچ رکوردی برای امروز ثبت نشده است.
+                        </div>
+                      ) : (
+                        logs.map((log) => (
+                          <div 
+                            key={log.id} 
+                            className="bg-white p-4 rounded-lg border border-[#EAE8E2]/40 shadow-sm flex justify-between items-center hover:bg-neutral-50/50 transition-all"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={`w-2 h-8 rounded-full ${userColorClass}`} />
+                              <div>
+                                <h4 className="text-sm font-bold text-[#2C2A27]">{log.topic}</h4>
+                                <span className="text-[10px] text-neutral-400 block mt-0.5 font-medium">امروز</span>
+                              </div>
+                            </div>
+                            <div className="text-left">
+                              <span className="text-base font-bold font-mono text-[#1C1B19] block">
+                                {toPersianDigits(log.hours)} ساعت
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </motion.div>
           )}
 
@@ -270,7 +317,7 @@ export default function Dashboard() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.2 }}
-              className="bg-white p-6 rounded-2xl border border-[#EAE8E2]/50 shadow-sm space-y-6"
+              className="bg-white p-6 rounded-sm border border-[#EAE8E2]/50 shadow-sm space-y-6"
             >
               <form onSubmit={handleAddLog} className="space-y-6">
                 <div>
@@ -296,7 +343,6 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* بهبود کامل بخش انتخاب زمان با دکمه‌های کپسولی سریع */}
                 <div>
                   <label className="block text-xs font-bold text-neutral-400 uppercase mb-2.5">۲. مدت زمان مطالعه</label>
                   <div className="space-y-3">
@@ -312,7 +358,6 @@ export default function Dashboard() {
                       <span className="absolute left-4 text-xs font-bold text-neutral-400 pointer-events-none">ساعت</span>
                     </div>
                     
-                    {/* دکمه‌های کپسولی میانبر زمان */}
                     <div className="grid grid-cols-3 gap-2">
                       {[0.5, 1.0, 2.0].map((amount) => (
                         <button
@@ -338,63 +383,106 @@ export default function Dashboard() {
             </motion.div>
           )}
 
-          {/* TAB 3: MINIMALIST CHRONO TIMER */}
-          {activeTab === "timer" && (
+          {/* TAB 3: OVERVIEW OVER STUDY METRICS */}
+          {activeTab === "overview" && (
             <motion.div
-              key="timer"
+              key="overview"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.2 }}
-              className="space-y-6 flex flex-col items-center justify-center pt-4"
+              className="space-y-5"
             >
-              <div className="w-full bg-white p-8 rounded-2xl border border-[#EAE8E2]/50 shadow-sm text-center flex flex-col items-center justify-center">
-                <span className="text-[9px] font-bold tracking-widest text-neutral-400 uppercase block mb-6">LIVE SESSION</span>
-                
-                <div className={`w-48 h-48 rounded-full border-2 border-neutral-100 flex flex-col items-center justify-center bg-[#FBFBFA] relative shadow-inner transition-all duration-500 ${isTimerRunning ? `ring-8 ${timerRingClass}` : ""}`}>
-                  <div className="text-4xl font-black font-mono tracking-tight text-[#1C1B19]">
-                    {formatTime(time)}
+              {/* بخش بالایی: استریک و کل هفته جاری کاربر لاگین شده */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white p-5 border border-[#EAE8E2]/60 shadow-sm flex flex-col justify-between">
+                  <div className="text-neutral-400 text-[10px] font-bold uppercase tracking-wider">روزهای متوالی (Streak)</div>
+                  <div className="flex items-baseline gap-1 mt-4">
+                    <span className={`text-3xl font-black font-mono ${userTextColorClass}`}>
+                      {toPersianDigits(streak)}
+                    </span>
+                    <span className="text-xs text-neutral-400 font-medium">روز</span>
                   </div>
-                  {isTimerRunning && (
-                    <span className="text-[9px] text-green-600 font-bold mt-1 tracking-wider animate-pulse">در حال ذخیره زمان...</span>
-                  )}
+                  <span className="text-[10px] text-neutral-400 mt-2 block">بدون وقفه روی خط مطالعه 🔥</span>
                 </div>
-                
-                <div className="grid grid-cols-2 gap-3 w-full mt-8">
-                  <button
-                    type="button"
-                    onClick={() => setIsTimerRunning(!isTimerRunning)}
-                    className={`p-3.5 text-xs font-bold rounded-xl transition-all shadow-sm text-white ${userColorClass}`}
-                  >
-                    {isTimerRunning ? "توقف موقت" : "شروع تایمر"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setIsTimerRunning(false); setTime(0); }}
-                    className="p-3.5 text-xs font-bold rounded-xl border border-[#EAE8E2] bg-[#FBFBFA] text-[#2C2A27] hover:bg-neutral-50"
-                  >
-                    ریست زمان
-                  </button>
+
+                <div className="bg-white p-5 border border-[#EAE8E2]/60 shadow-sm flex flex-col justify-between">
+                  <div className="text-neutral-400 text-[10px] font-bold uppercase tracking-wider">کل هفته شما (شنبه - جمعه)</div>
+                  <div className="flex items-baseline gap-1 mt-4">
+                    <span className="text-3xl font-black font-mono text-[#1C1B19]">
+                      {toPersianDigits(currentWeekTotal.toFixed(1))}
+                    </span>
+                    <span className="text-xs text-neutral-400 font-medium">ساعت</span>
+                  </div>
+                  <span className="text-[10px] text-neutral-400 mt-2 block">مجموع عملکرد رکوردهای شما</span>
                 </div>
               </div>
 
-              {time > 5 && (
-                <button
-                  type="button"
-                  onClick={handleTransferTimerToInput}
-                  className="w-full p-3.5 bg-white border border-[#EAE8E2] rounded-xl text-xs font-bold text-[#2C2A27] shadow-sm hover:bg-neutral-50 transition-all text-center flex items-center justify-center gap-1"
-                >
-                  <span>ثبت این زمان درون کارنامه</span>
-                  <span className="text-neutral-400 font-mono">({toPersianDigits((time / 3600).toFixed(1))}h)</span>
-                </button>
-              )}
+              {/* ─── کارت لیدربورد رقیب با واکشی مستقیم و ایزوله ─── */}
+              <div className="bg-white p-5 border border-[#EAE8E2]/60 shadow-sm relative overflow-hidden">
+                <div className={`absolute top-0 right-0 w-full h-[3px] ${opponentColorClass}`} />
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h3 className="text-xs font-bold text-[#1C1B19]">وضعیت رقیب ({opponentName})</h3>
+                    <p className="text-[10px] text-neutral-400 mt-0.5">مانیتورینگ متقاطع دیتابیس به صورت بلادرنگ</p>
+                  </div>
+                  <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${opponentBgLightClass} ${opponentTextColorClass}`}>
+                    LIVE
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 pt-1">
+                  <div className="border-l border-[#EAE8E2]/60 pl-2">
+                    <span className="text-[10px] font-medium text-neutral-400 block">مطالعه امروز حریف</span>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className={`text-2xl font-black font-mono ${opponentTextColorClass}`}>
+                        {toPersianDigits(opponentToday.toFixed(1))}
+                      </span>
+                      <span className="text-[10px] text-neutral-400">ساعت</span>
+                    </div>
+                  </div>
+                  <div className="pr-2">
+                    <span className="text-[10px] font-medium text-neutral-400 block">کل این هفته حریف</span>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className="text-2xl font-black font-mono text-[#1C1B19]">
+                        {toPersianDigits(opponentWeek.toFixed(1))}
+                      </span>
+                      <span className="text-[10px] text-neutral-400">ساعت</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* بخش پایینی: عملکرد ۴ هفته اخیر کاربر لاگین شده */}
+              <div className="bg-white p-5 border border-[#EAE8E2]/60 shadow-sm space-y-4">
+                <div className="px-0.5">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">تاریخچه عملکرد ۴ هفته اخیر شما</h3>
+                  <p className="text-[10px] text-neutral-400 mt-1">مقایسه و پیگیری ثبات آمادگی آزمون</p>
+                </div>
+
+                <div className="divide-y divide-[#EAE8E2]/60">
+                  {last4Weeks.map((week, index) => (
+                    <div key={index} className="flex justify-between items-center py-3.5 first:pt-1 last:pb-1">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-1.5 h-1.5 ${index === 0 ? userColorClass : "bg-neutral-300"}`} />
+                        <span className={`text-xs ${index === 0 ? "font-bold text-[#1C1B19]" : "text-neutral-500"}`}>
+                          {week.label}
+                        </span>
+                      </div>
+                      <span className="text-sm font-bold font-mono text-[#2C2A27]">
+                        {toPersianDigits(week.hours.toFixed(1))} <span className="text-[10px] font-medium text-neutral-400">ساعت</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </motion.div>
           )}
 
         </AnimatePresence>
       </main>
 
-      {/* ─── FLOATING FULL-WIDTH ISLAND BOTTOM NAV ─── */}
+      {/* ─── FLOATING BOTTOM NAV ─── */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-transparent z-20 max-w-md mx-auto w-full">
         <nav className="bg-white/90 backdrop-blur-md border border-[#EAE8E2]/70 shadow-xl h-20 px-2 flex items-center w-full rounded-2xl">
           <div className="w-full grid grid-cols-3 h-14">
@@ -424,18 +512,15 @@ export default function Dashboard() {
             </button>
 
             <button
-              onClick={() => setActiveTab("timer")}
-              className={`flex flex-col items-center justify-center gap-1 rounded-xl transition-all relative ${
-                activeTab === "timer" ? "text-[#1C1B19] font-bold" : "text-neutral-400 hover:text-neutral-600"
+              onClick={() => setActiveTab("overview")}
+              className={`flex flex-col items-center justify-center gap-1 rounded-xl transition-all ${
+                activeTab === "overview" ? "text-[#1C1B19] font-bold" : "text-neutral-400 hover:text-neutral-600"
               }`}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
               </svg>
-              <span className="text-[13px] flex items-center gap-1">
-                تایمر
-                {isTimerRunning && <span className={`w-1.5 h-1.5 rounded-full animate-ping ${userColorClass}`} />}
-              </span>
+              <span className="text-[13px]">وضعیت</span>
             </button>
 
           </div>

@@ -1,8 +1,17 @@
+// prisma/schema.prisma
+
+datasource db {
+  provider = "postgresql"
+}
+
 generator client {
   provider = "prisma-client-js"
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+model StudyLog {
+  id        String   @id @default(cuid())
+  topic     String   // مبحث دستیاری
+  hours     Float    // مدت زمان مطالعه به ساعت
+  user      String   // "mostafa" یا "saghar"
+  createdAt DateTime @default(now())
 }
