@@ -13,5 +13,6 @@ model StudyLog {
   topic     String   // مبحث دستیاری
   hours     Float    // مدت زمان مطالعه به ساعت
   user      String   // "mostafa" یا "saghar"
+  note      String?  // <--- اضافه کردن این فیلد به صورت اختیاری
   createdAt DateTime @default(now())
 }

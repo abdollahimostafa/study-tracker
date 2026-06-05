@@ -3,12 +3,12 @@ import type { MetadataRoute } from 'next'
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'Side by Side',
-    short_name: 'SAMO',
+    short_name: 'SideBy',
     description: 'Saghar yek dokhtare naz ast',
     start_url: '/',
     display: 'standalone',
-    background_color: '#ffffff',
-    theme_color: '#000000',
+    background_color: '#f9f8f4',
+    theme_color: '#f9f8f4',
     icons: [
       {
         src: '/icon-192x192.png',

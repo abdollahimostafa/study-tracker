@@ -4,9 +4,12 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const TOPICS = [
-  "داخلی", "جراحی", "اطفال", "زنان و زایمان", 
-  "روانپزشکی", "عفونی", "نورولوژی", "قلب", 
-  "فارماکولوژی", "ارکانی و بیهوشی", "پوست و رادیو", "آمار و اپیدمی"
+   "جراحی", "اطفال", "زنان", 
+   "داخلی - قلب", "داخلی - روماتولوژی", "داخلی - ریه", "داخلی - گوارش", "داخلی - نفرولوژی", "داخلی - غدد",
+   "داخلی - هماتولوژی","ارتوپدی","ارولوژی","پوست","پاتولوژی",
+  "روانپزشکی", "عفونی", "نورولوژی", "چشم", 
+  "فارماکولوژی", "ENT", " رادیو", "آمار و اپیدمی",
+  "صلاحیت بالینی", "QA"
 ];
 
 const toPersianDigits = (num: string | number) => {
@@ -17,9 +20,10 @@ const toPersianDigits = (num: string | number) => {
 
 export default function Dashboard() {
   const [currentUser, setCurrentUser] = useState<"mostafa" | "saghar" | null>(null);
-  const [activeTab, setActiveTab] = useState<"history" | "add" | "overview">("history");
+  const [activeTab, setActiveTab] = useState<"history" | "add" | "overview" | "weeks">("history");
   const [selectedTopic, setSelectedTopic] = useState("");
   const [hours, setHours] = useState("");
+  const [note, setNote] = useState(""); 
   const [logs, setLogs] = useState<any[]>([]);
   const [weekPerformance, setWeekPerformance] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -33,15 +37,10 @@ export default function Dashboard() {
   const [opponentToday, setOpponentToday] = useState(0);
   const [opponentWeek, setOpponentWeek] = useState(0);
 
-  // تابع واکشی داده‌ها با منطق اصلاح‌شده مچ‌کردن حریف
-  // تابع واکشی داده‌ها با منطق اصلاح‌شده مچ‌کردن مستقل حریف
   const fetchDatabaseData = async (user: string) => {
     setIsLoading(true);
     try {
-      // ۱. ابتدا دیتای خود کاربر لاگین شده را میاوریم
       const res = await fetch(`/api/study-logs?user=${user}`, { cache: "no-store" });
-      
-      // ۲. رقیب را مشخص می‌کنیم تا دیتای او را هم مستقیم و بدون وابستگی بگیریم
       const opponent = user === "mostafa" ? "saghar" : "mostafa";
       const resOpponent = await fetch(`/api/study-logs?user=${opponent}`, { cache: "no-store" });
 
@@ -61,17 +60,13 @@ export default function Dashboard() {
 
       if (resOpponent.ok) {
         const opponentData = await resOpponent.json();
-        
-        // محاسبه مجموع ساعت امروز حریف از روی لوگ‌های امروز او
         const oppLogs = opponentData.logs || [];
         const oppTodayTotal = oppLogs.reduce((sum: number, log: any) => sum + (parseFloat(log.hours) || 0), 0);
         
-        // راهکار حل مشکل: محاسبه داینامیک مجموع عملکرد ۷ روز گذشته حریف از روی آرایه پرفورمنس بک‌بورد او
         const oppPerf = opponentData.performance || [];
         const oppWeekTotal = oppPerf.reduce((sum: number, perf: any) => sum + (parseFloat(perf.hours) || 0), 0);
         
         setOpponentToday(oppTodayTotal);
-        // اگر بک‌اند مقدار معتبر فرستاده بود از آن استفاده کن، در غیر این‌صورت از محاسبه دقیق فرانت‌استفاده کن
         setOpponentWeek(opponentData.currentWeekTotal > 0 ? opponentData.currentWeekTotal : oppWeekTotal);
       }
     } catch (err) {
@@ -116,6 +111,7 @@ export default function Dashboard() {
         body: JSON.stringify({
           topic: selectedTopic,
           hours: hours,
+          note: note.trim(), 
           user: currentUser,
         }),
       });
@@ -123,6 +119,7 @@ export default function Dashboard() {
       if (res.ok) {
         setSelectedTopic("");
         setHours("");
+        setNote(""); 
         setActiveTab("history");
         await fetchDatabaseData(currentUser);
       } else {
@@ -138,7 +135,15 @@ export default function Dashboard() {
     setHours((current + amount).toString());
   };
 
-  const todayTotalHours = logs.reduce((sum, log) => sum + (parseFloat(log.hours) || 0), 0);
+  const todayTotalHours = logs.reduce((sum, log) => {
+    // محاسبه مجموع رکوردهای ثبت شده با تاریخ امروز
+    const logDate = new Date(log.createdAt).toDateString();
+    const todayDate = new Date().toDateString();
+    if (logDate === todayDate) {
+      return sum + (parseFloat(log.hours) || 0);
+    }
+    return sum;
+  }, 0);
 
   if (!currentUser) {
     return (
@@ -150,21 +155,20 @@ export default function Dashboard() {
   }
 
   const isMostafa = currentUser === "mostafa";
-  const userColorClass = isMostafa ? "bg-[#0D5236]" : "bg-[#DB2777]";
-  const userTextColorClass = isMostafa ? "text-[#0D5236]" : "text-[#DB2777]";
-  const userBgLightClass = isMostafa ? "bg-[#0D5236]/10" : "bg-[#DB2777]/10";
+  const userColorClass = isMostafa ? "bg-[#0D5236]" : "bg-[#ef89b2]";
+  const userTextColorClass = isMostafa ? "text-[#0D5236]" : "text-[#ef89b2]";
+  const userBgLightClass = isMostafa ? "bg-[#0D5236]/10" : "bg-[#ef89b2]/10";
 
-  // تدارکات استایل و نام رقیب
   const opponentName = isMostafa ? "ساغر" : "مصطفی";
-  const opponentColorClass = isMostafa ? "bg-[#DB2777]" : "bg-[#0D5236]";
-  const opponentTextColorClass = isMostafa ? "text-[#DB2777]" : "text-[#0D5236]";
-  const opponentBgLightClass = isMostafa ? "bg-[#DB2777]/10" : "bg-[#0D5236]/10";
+  const opponentColorClass = isMostafa ? "bg-[#DB2777]" : "bg-[#c68b87]";
+  const opponentTextColorClass = isMostafa ? "text-[#DB2777]" : "text-[#c68b87]";
+  const opponentBgLightClass = isMostafa ? "bg-[#DB2777]/10" : "bg-[#c68b87]/10";
 
   const getTileBg = (hrs: number) => {
     if (hrs === 0) return "bg-neutral-100 text-neutral-400";
-    if (hrs < 4) return isMostafa ? "bg-[#0D5236]/15 text-[#0D5236]" : "bg-[#DB2777]/15 text-[#DB2777]";
-    if (hrs < 7) return isMostafa ? "bg-[#0D5236]/40 text-[#0D5236]" : "bg-[#DB2777]/40 text-[#DB2777]";
-    return isMostafa ? "bg-[#0D5236] text-white" : "bg-[#DB2777] text-white";
+    if (hrs < 4) return isMostafa ? "bg-[#0D5236]/15 text-[#0D5236]" : "bg-[#c68b87]/15 text-[#c68b87]";
+    if (hrs < 7) return isMostafa ? "bg-[#0D5236]/40 text-[#0D5236]" : "bg-[#c68b87]/40 text-[#c68b87]";
+    return isMostafa ? "bg-[#0D5236] text-white" : "bg-[#c68b87] text-white";
   };
 
   return (
@@ -205,7 +209,6 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <>
-                  {/* کارت عملکرد امروز کاربر */}
                   <div className="bg-white p-5 border border-[#EAE8E3]/80 relative overflow-hidden flex justify-between items-center">
                     <div className={`absolute top-0 right-0 w-2 h-full ${userColorClass}`} />
                     <div>
@@ -235,11 +238,9 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {/* بخش تایل‌های عملکرد ۷ روز گذشته */}
                   <div className="bg-white p-5 border border-[#EAE8E2]/50 shadow-sm space-y-4">
                     <div className="flex items-center justify-between px-0.5">
                       <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">وضعیت عملکرد ۷ روز گذشته</h3>
-                      <span className="text-[10px] text-neutral-400 font-medium">مجموع کل هفته</span>
                     </div>
                     
                     <div className="space-y-2">
@@ -273,34 +274,44 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {/* لیست گزارش‌های امروز */}
+                  {/* لیست گزارش‌های ثبت‌شده امروز */}
                   <div className="space-y-3">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400 px-1">گزارش‌های ثبت‌شده امروز</h3>
                     <div className="space-y-2.5">
-                      {logs.length === 0 ? (
+                      {logs.filter(log => new Date(log.createdAt).toDateString() === new Date().toDateString()).length === 0 ? (
                         <div className="text-center py-6 text-xs text-neutral-400 bg-white rounded-md border border-dashed border-[#EAE8E2]">
                           هیچ رکوردی برای امروز ثبت نشده است.
                         </div>
                       ) : (
-                        logs.map((log) => (
-                          <div 
-                            key={log.id} 
-                            className="bg-white p-4 rounded-lg border border-[#EAE8E2]/40 shadow-sm flex justify-between items-center hover:bg-neutral-50/50 transition-all"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className={`w-2 h-8 rounded-full ${userColorClass}`} />
-                              <div>
-                                <h4 className="text-sm font-bold text-[#2C2A27]">{log.topic}</h4>
-                                <span className="text-[10px] text-neutral-400 block mt-0.5 font-medium">امروز</span>
+                        logs
+                          .filter(log => new Date(log.createdAt).toDateString() === new Date().toDateString())
+                          .map((log) => (
+                            <div 
+                              key={log.id} 
+                              className="bg-white p-4 rounded-lg border border-[#EAE8E2]/40 shadow-sm flex flex-col gap-2.5 hover:bg-neutral-50/50 transition-all"
+                            >
+                              <div className="flex justify-between items-center w-full">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-2 h-8 rounded-full ${userColorClass}`} />
+                                  <div>
+                                    <h4 className="text-sm font-bold text-[#2C2A27]">{log.topic}</h4>
+                                    <span className="text-[10px] text-neutral-400 block mt-0.5 font-medium">امروز</span>
+                                  </div>
+                                </div>
+                                <div className="text-left">
+                                  <span className="text-base font-bold font-mono text-[#1C1B19] block">
+                                    {toPersianDigits(log.hours)} ساعت
+                                  </span>
+                                </div>
                               </div>
+                              
+                              {log.note && (
+                                <div className="bg-[#FBFBFA] rounded-md  border border-[#EAE8E2]/60 p-2.5 text-[11px] text-neutral-500 text-right leading-relaxed font-medium">
+                                  {log.note}
+                                </div>
+                              )}
                             </div>
-                            <div className="text-left">
-                              <span className="text-base font-bold font-mono text-[#1C1B19] block">
-                                {toPersianDigits(log.hours)} ساعت
-                              </span>
-                            </div>
-                          </div>
-                        ))
+                          ))
                       )}
                     </div>
                   </div>
@@ -373,6 +384,17 @@ export default function Dashboard() {
                   </div>
                 </div>
 
+                <div>
+                  <label className="block text-xs font-bold text-neutral-400 uppercase mb-2.5">۳. توضیحات یا یادداشت (اختیاری)</label>
+                  <textarea
+                    rows={3}
+                    placeholder="نکات کلیدی، کیس مچ شده یا علت پیشرفت مبحث را بنویسید..."
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    className="w-full p-4 bg-[#FBFBFA] border border-[#EAE8E2] focus:border-[#2C2A27] rounded-xl focus:outline-none text-xs font-medium leading-relaxed transition-all resize-none"
+                  />
+                </div>
+
                 <button
                   type="submit"
                   className="w-full p-4 bg-[#2C2A27] text-white text-xs font-bold uppercase rounded-xl hover:bg-neutral-800 transition-all shadow-md active:scale-[0.99]"
@@ -383,7 +405,7 @@ export default function Dashboard() {
             </motion.div>
           )}
 
-          {/* TAB 3: OVERVIEW OVER STUDY METRICS */}
+          {/* TAB 3: OVERVIEW WITH SHIFTED 4 WEEKS PROGRESS REVIEW */}
           {activeTab === "overview" && (
             <motion.div
               key="overview"
@@ -393,7 +415,6 @@ export default function Dashboard() {
               transition={{ duration: 0.2 }}
               className="space-y-5"
             >
-              {/* بخش بالایی: استریک و کل هفته جاری کاربر لاگین شده */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-white p-5 border border-[#EAE8E2]/60 shadow-sm flex flex-col justify-between">
                   <div className="text-neutral-400 text-[10px] font-bold uppercase tracking-wider">روزهای متوالی (Streak)</div>
@@ -418,13 +439,13 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* ─── کارت لیدربورد رقیب با واکشی مستقیم و ایزوله ─── */}
+              {/* حریف (Live) */}
               <div className="bg-white p-5 border border-[#EAE8E2]/60 shadow-sm relative overflow-hidden">
                 <div className={`absolute top-0 right-0 w-full h-[3px] ${opponentColorClass}`} />
                 <div className="flex justify-between items-center mb-4">
                   <div>
-                    <h3 className="text-xs font-bold text-[#1C1B19]">وضعیت رقیب ({opponentName})</h3>
-                    <p className="text-[10px] text-neutral-400 mt-0.5">مانیتورینگ متقاطع دیتابیس به صورت بلادرنگ</p>
+                    <h3 className="text-xs font-bold text-[#1C1B19]">وضعیت  ({opponentName})</h3>
+                    <p className="text-[10px] text-neutral-400 mt-0.5">اون امروز و این هفته چیکار کرده</p>
                   </div>
                   <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${opponentBgLightClass} ${opponentTextColorClass}`}>
                     LIVE
@@ -433,7 +454,7 @@ export default function Dashboard() {
 
                 <div className="grid grid-cols-2 gap-4 pt-1">
                   <div className="border-l border-[#EAE8E2]/60 pl-2">
-                    <span className="text-[10px] font-medium text-neutral-400 block">مطالعه امروز حریف</span>
+                    <span className="text-[10px] font-medium text-neutral-400 block">مطالعه امروزش</span>
                     <div className="flex items-baseline gap-1 mt-1">
                       <span className={`text-2xl font-black font-mono ${opponentTextColorClass}`}>
                         {toPersianDigits(opponentToday.toFixed(1))}
@@ -442,7 +463,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="pr-2">
-                    <span className="text-[10px] font-medium text-neutral-400 block">کل این هفته حریف</span>
+                    <span className="text-[10px] font-medium text-neutral-400 block">کل این هفته اش</span>
                     <div className="flex items-baseline gap-1 mt-1">
                       <span className="text-2xl font-black font-mono text-[#1C1B19]">
                         {toPersianDigits(opponentWeek.toFixed(1))}
@@ -453,16 +474,16 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* بخش پایینی: عملکرد ۴ هفته اخیر کاربر لاگین شده */}
+              {/* بخش منتقل‌شده: مقایسه روند عملکرد ۴ هفته اخیر */}
               <div className="bg-white p-5 border border-[#EAE8E2]/60 shadow-sm space-y-4">
                 <div className="px-0.5">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">تاریخچه عملکرد ۴ هفته اخیر شما</h3>
-                  <p className="text-[10px] text-neutral-400 mt-1">مقایسه و پیگیری ثبات آمادگی آزمون</p>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">تاریخچه روند ۴ هفته اخیر</h3>
+                  <p className="text-[10px] text-neutral-400 mt-1">مقایسه روند و پیگیری ثبات آمادگی آزمون دستیاری</p>
                 </div>
 
                 <div className="divide-y divide-[#EAE8E2]/60">
                   {last4Weeks.map((week, index) => (
-                    <div key={index} className="flex justify-between items-center py-3.5 first:pt-1 last:pb-1">
+                    <div key={index} className="flex justify-between items-center py-3 first:pt-1 last:pb-1">
                       <div className="flex items-center gap-2">
                         <div className={`w-1.5 h-1.5 ${index === 0 ? userColorClass : "bg-neutral-300"}`} />
                         <span className={`text-xs ${index === 0 ? "font-bold text-[#1C1B19]" : "text-neutral-500"}`}>
@@ -479,13 +500,76 @@ export default function Dashboard() {
             </motion.div>
           )}
 
+          {/* TAB 4: ALL REGISTERED CARDS WITHIN THE LAST 4 WEEKS */}
+          {activeTab === "weeks" && (
+            <motion.div
+              key="weeks"
+              initial={{ opacity: 0, x: 15 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -15 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-4"
+            >
+              <div className="px-1">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">درس‌های خوانده‌شده (۴ هفته اخیر)</h3>
+                <p className="text-[10px] text-neutral-400 mt-1">آرشیو تمام کارت‌ها و گزارش‌های ثبت شده در این دوره</p>
+              </div>
+
+              <div className="space-y-3">
+                {logs.length === 0 ? (
+                  <div className="text-center py-10 text-xs text-neutral-400 bg-white rounded-md border border-dashed border-[#EAE8E2]">
+                    هیچ رکوردی در ۴ هفته گذشته یافت نشد.
+                  </div>
+                ) : (
+                  logs.map((log) => {
+                    const formattedDate = new Date(log.createdAt).toLocaleDateString("fa-IR", {
+                      month: "long",
+                      day: "numeric",
+                    });
+
+                    return (
+                      <div 
+                        key={log.id} 
+                        className="bg-white p-4 rounded-lg border border-[#EAE8E2]/40 shadow-sm flex flex-col gap-2.5 hover:bg-neutral-50/50 transition-all"
+                      >
+                        <div className="flex justify-between items-center w-full">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-2 h-8 rounded-full opacity-70 ${userColorClass}`} />
+                            <div>
+                              <h4 className="text-sm font-bold text-[#2C2A27]">{log.topic}</h4>
+                              <span className="text-[10px] text-neutral-400 block mt-0.5 font-mono">
+                                {toPersianDigits(formattedDate)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-left">
+                            <span className="text-sm font-bold font-mono text-[#1C1B19] block">
+                              {toPersianDigits(log.hours)} ساعت
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {log.note && (
+                          <div className="bg-[#FBFBFA] border border-[#EAE8E2]/60 p-2.5 text-[11px] text-neutral-500 text-right leading-relaxed font-medium">
+                            <span className="text-neutral-400 font-bold ml-1">یادداشت:</span>
+                            {log.note}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </motion.div>
+          )}
+
         </AnimatePresence>
       </main>
 
-      {/* ─── FLOATING BOTTOM NAV ─── */}
+      {/* ─── FLOATING BOTTOM NAV (4 COLUMNS - STYLED) ─── */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-transparent z-20 max-w-md mx-auto w-full">
         <nav className="bg-white/90 backdrop-blur-md border border-[#EAE8E2]/70 shadow-xl h-20 px-2 flex items-center w-full rounded-2xl">
-          <div className="w-full grid grid-cols-3 h-14">
+          <div className="w-full grid grid-cols-4 h-14">
             
             <button
               onClick={() => setActiveTab("history")}
@@ -496,7 +580,7 @@ export default function Dashboard() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
               </svg>
-              <span className="text-[13px]">کارنامه</span>
+              <span className="text-[11px]">کارنامه</span>
             </button>
 
             <button
@@ -508,7 +592,7 @@ export default function Dashboard() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
-              <span className="text-[13px]">ثبت دستی</span>
+              <span className="text-[11px]">ثبت دستی</span>
             </button>
 
             <button
@@ -520,7 +604,19 @@ export default function Dashboard() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
               </svg>
-              <span className="text-[13px]">وضعیت</span>
+              <span className="text-[11px]">وضعیت</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("weeks")}
+              className={`flex flex-col items-center justify-center gap-1 rounded-xl transition-all ${
+                activeTab === "weeks" ? "text-[#1C1B19] font-bold" : "text-neutral-400 hover:text-neutral-600"
+              }`}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span className="text-[11px]">مرور درس‌ها</span>
             </button>
 
           </div>
